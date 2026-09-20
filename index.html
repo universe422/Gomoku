@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172723">
+  <meta name="description" content="설치 없이 브라우저에서 즐기는 렌주 AI 대국. 흑 금수와 15×15 규칙을 지원합니다.">
+  <title>렌주 · AI와 한 판</title>
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <header><a class="brand" href="./">렌주<span>RENJU / 15 × 15</span></a><span class="header-note">AI와 한 판</span></header>
+  <main>
+    <section class="game" aria-label="대국 화면">
+      <div class="board-heading"><span id="turn">대국 준비</span><span id="move-count">0수</span></div>
+      <div class="board-frame"><div id="board" role="grid" aria-label="15줄 렌주 바둑판"></div></div>
+      <div class="board-caption"><span><i class="last-dot"></i> 마지막 수</span><span><b class="foul-symbol">×</b> 흑 금수</span><span>흑은 중앙에서 시작합니다</span></div>
+    </section>
+    <aside>
+      <div class="eyebrow">YOUR NEXT MOVE</div>
+      <h1>한 수씩,<br>끝까지.</h1>
+      <p class="intro">학습한 AI와 두는 렌주.<br>돌 다섯 개를 먼저 이어 보세요.</p>
+      <div class="status-box" role="status" aria-live="polite"><span id="status">대국 엔진을 불러오는 중…</span><span id="detail">처음 접속하면 준비에 잠시 시간이 걸립니다.</span></div>
+      <fieldset id="settings" disabled>
+        <legend>대국 설정</legend>
+        <label for="side">내 돌</label>
+        <select id="side"><option value="1">● 흑 · 먼저 두기</option><option value="2">○ 백 · 나중에 두기</option></select>
+        <label for="simulations">AI 탐색량</label>
+        <select id="simulations"><option value="16">빠르게 · 16회</option><option value="32" selected>가볍게 · 32회</option><option value="64">차분하게 · 64회</option><option value="128">깊게 · 128회</option></select>
+        <p class="setting-note">탐색량이 많을수록 더 오래 생각합니다.<br>돌 선택은 새 대국부터 적용됩니다.</p>
+      </fieldset>
+      <button id="new-game" class="primary" disabled>새 대국</button>
+      <button id="pass" class="secondary" hidden>둘 곳 없음 · 패스</button>
+      <button id="retry" class="secondary" hidden>엔진 다시 불러오기</button>
+      <details><summary>대국 규칙</summary><p>15×15 바둑판에서 흑이 중앙에 먼저 둡니다. 흑은 정확히 5목, 백은 5목 이상이면 이깁니다. 흑의 삼삼·사사·장목은 금수로 표시되며 둘 수 없습니다.</p><p>둘 곳이 없을 때만 패스할 수 있습니다. 대회용 교환 오프닝과 시간제는 포함하지 않습니다.</p></details>
+      <p class="privacy">대국 계산은 내 기기에서 이루어집니다.<br>대국 내용은 서버에 전송하지 않습니다.</p>
+    </aside>
+  </main>
+  <footer><span>RENJU NEXT</span><span id="model-info">학습 모델 · best</span></footer>
+</body>
+</html>
