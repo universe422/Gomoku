@@ -10,8 +10,12 @@ import random
 from browser_support import torch
 from core import *
 from threat_search import root_choices
+from forcing import four_moves, solve_forcing, immediate_foul_wins, immediate_foul_defences
 
-SEARCH_VERSION = 2
+SEARCH_VERSION = 3
+# V2 completed-Q policy labels remain mathematically compatible. V1's
+# discarded-candidate targets must still never be taught to this model.
+POLICY_MIN_VERSION = 2
 
 
 @dataclass
@@ -24,6 +28,7 @@ class Node:
     solved: object = None
     complete: bool = True
     children: dict = field(default_factory=dict)
+    trace: object = field(default=None, repr=False)
 
     @property
     def mean(self):
@@ -111,6 +116,11 @@ def rollout(root, g, action, net_id):
         value = node.solved
     else:
         value = yield from expand(node, state, net_id)
+    if root.trace is not None:
+        depth = len(path)-1
+        root.trace['depth_sum'] += depth
+        root.trace['depth_max'] = max(root.trace['depth_max'], depth)
+        root.trace['rollouts'] += 1
     for n in reversed(path):
         prove(n)
         if n.solved is not None:
@@ -176,14 +186,23 @@ def round_rollouts(root, g, actions, visits, net_id):
 
 
 def search(g, net_id=0, simulations=128, rng=None, selfplay=False,
-           tactical_root=True, diagnostics=False):
+           tactical_root=True, diagnostics=False, forcing=True, candidate_limit=0,
+           forcing_nodes=64, forcing_plies=9):
     if simulations < 4:
         raise ValueError('simulations must be >=4')
     if g.winner is not None:
         raise ValueError('Finished board')
+    if candidate_limit < 0 or forcing_nodes < 0 or forcing_plies < 0:
+        raise ValueError('search limits must be nonnegative')
+    import time
+    started = time.perf_counter()
     rng = rng or random.Random()
     root = Node(g.turn)
+    root.trace = {'depth_sum': 0, 'depth_max': 0, 'rollouts': 0}
     value = yield from expand(root, g, net_id)
+    reason = 'mcts';certificate = None;initial = [];protected = []
+    solver = {'status': 'not_run', 'nodes': 0, 'max_depth': 0, 'seconds': 0.}
+    priors_before = {a: c.prior for a, c in root.children.items()}
     if tactical_root and root.solved is None:
         choices, reason = root_choices(g, wins, legal)
         if choices:
@@ -191,55 +210,96 @@ def search(g, net_id=0, simulations=128, rng=None, selfplay=False,
             root.complete = False
             if reason == 'create-double-winning-threat':
                 root.solved = 1.
+    if tactical_root and forcing and root.solved is None and len(root.children)>1:
+        if g.turn == BLACK and immediate_foul_wins(g):
+            safe = set(immediate_foul_defences(g)) & root.children.keys()
+            if safe:
+                root.children = {a: c for a, c in root.children.items() if a in safe}
+                root.complete = False
+                reason = 'prevent-immediate-foul-trap'
+        protected = [a for a, _ in four_moves(g) if a in root.children]
+        if protected:
+            direct_fouls = set(immediate_foul_wins(g)) & root.children.keys() if g.turn == WHITE else set()
+            solver = solve_forcing(g, forcing_nodes, forcing_plies,
+                {a: c.prior for a, c in root.children.items()}, direct_fouls or set(root.children))
+            if solver['status'] == 'proven':
+                if direct_fouls:
+                    solver['actions'] = sorted(direct_fouls)
+                certificate = solver
+                root.children = {a: root.children[a] for a in solver['actions']}
+                root.solved = 1.;root.complete = False;reason = 'verified-forcing-win'
     actions = list(root.children)
+
+    def stats(used, count, q=None, p=None):
+        result = {'candidates': count, 'used': used, 'value': root.mean,
+                  'proof': root.solved, 'policy_weight': float(root.solved != -1.),
+                  'search_version': SEARCH_VERSION, 'reason': reason,
+                  'mcts_max_depth': root.trace['depth_max'],
+                  'mcts_mean_depth': root.trace['depth_sum']/max(1,root.trace['rollouts']),
+                  'forcing_nodes': solver['nodes'], 'forcing_max_depth': solver['max_depth'],
+                  'forcing_seconds': solver['seconds'], 'elapsed_seconds': time.perf_counter()-started,
+                  'protected_candidates': len(protected),
+                  'protected_unsearched': len(set(protected)-set(initial)) if initial else 0,
+                  'proof_plies': certificate['proof_plies'] if certificate else None}
+        if certificate:
+            result['certificate'] = certificate
+        if q is not None:
+            result['q_range'] = max(q)-min(q)
+            result['chosen_target_probability'] = float(p[action])
+        if diagnostics:
+            all_actions, values, _ = completed_scores(root)
+            ranked = sorted(priors_before, key=lambda a: (-priors_before[a], a))
+            result.update({'actions': all_actions, 'q': values,
+                'visits': [root.children[a].visits for a in all_actions],
+                'priors': [root.children[a].prior for a in all_actions],
+                'initial': initial, 'protected': protected,
+                'policy_rank': {str(a): i+1 for i, a in enumerate(ranked)},
+                'solved': [root.children[a].solved for a in all_actions]})
+        return result
+
     if len(actions) == 1 or root.solved is not None:
-        p = torch.zeros(ACTIONS)
-        p[actions] = 1/len(actions)
+        p = torch.zeros(ACTIONS);p[actions] = 1/len(actions)
         action = rng.choice(actions) if selfplay else actions[0]
-        return action, p, {'candidates': len(actions), 'used': 0, 'value': root.solved if root.solved is not None else value,
-                          'proof': root.solved, 'policy_weight': float(root.solved != -1.), 'search_version': SEARCH_VERSION}
-    # Keep one perturbation through all rounds. Training plays the finalist;
-    # there is no second sampling step from shallow, eliminated candidates.
+        return action, p, stats(0,len(actions),p=p)
     noise_scale = (1. if g.stone_count < 24 else .25) if selfplay else 0.
     noise = {a: -math.log(-math.log(max(1e-12, rng.random()))) * noise_scale for a in actions}
-    k = min(16, len(actions), max(2, simulations//4))
-    initial = sorted(actions, key=lambda a: math.log(root.children[a].prior)+noise[a], reverse=True)[:k]
-    active = initial[:]
-    used = 0
+    rank_prior = lambda a: math.log(root.children[a].prior)+noise[a]
+    # More candidates require a larger budget; 128 still starts with 16.
+    # Verified forcing moves get reserved slots instead of disappearing below
+    # the neural top-K. Very small diagnostic budgets report any overflow.
+    base = candidate_limit or (16 if simulations<256 else 32 if simulations<1024 else 64)
+    capacity = min(len(actions), max(2,simulations//2))
+    k = min(capacity, max(min(base,max(2,simulations//4)),len(protected)))
+    reserved = sorted(protected,key=rank_prior,reverse=True)[:k]
+    initial = reserved+[a for a in sorted(actions,key=rank_prior,reverse=True) if a not in reserved][:k-len(reserved)]
+    active = initial[:];used = 0
     while len(active) > 1 and root.solved is None:
         rounds = math.ceil(math.log2(len(active)))
-        visits = max(1, (simulations-used)//(len(active)*rounds))
-        used += yield from round_rollouts(root, g, active, visits, net_id)
-        all_actions, _, scores = completed_scores(root)
-        rank = dict(zip(all_actions, scores))
-        active.sort(key=lambda a: (root.children[a].solved == -1., root.children[a].solved != 1., rank[a]+noise[a]), reverse=True)
+        visits = max(1,(simulations-used)//(len(active)*rounds))
+        visits = min(visits,(simulations-used)//len(active))
+        if visits < 1:
+            break
+        used += yield from round_rollouts(root,g,active,visits,net_id)
+        all_actions,_,scores = completed_scores(root)
+        rank = dict(zip(all_actions,scores))
+        active.sort(key=lambda a: (root.children[a].solved == -1.,root.children[a].solved != 1.,rank[a]+noise[a]),reverse=True)
         active = active[:math.ceil(len(active)/2)]
     while used < simulations and root.solved is None:
-        yield from rollout(root, g, active[0], net_id)
+        yield from rollout(root,g,active[0],net_id)
         used += 1
-    all_actions, q, scores = completed_scores(root)
+    all_actions,q,scores = completed_scores(root)
     winning = [a for a in all_actions if root.children[a].solved == -1.]
     p = torch.zeros(ACTIONS)
     if winning:
         p[winning] = 1/len(winning)
-        action = max(winning, key=lambda a: math.log(root.children[a].prior)+noise[a])
+        action = max(winning,key=rank_prior)
     else:
         allowed = [a for a in all_actions if root.children[a].solved != 1.] or all_actions
-        score_by_action = dict(zip(all_actions, scores))
+        score_by_action = dict(zip(all_actions,scores))
         p[allowed] = torch.tensor(softmax([score_by_action[a] for a in allowed]))
-        finalists = [a for a in active if a in allowed]
-        # Prefer an untested option over a refuted loss if every finalist lost.
-        if not finalists:
-            finalists = allowed
-        action = max(finalists, key=lambda a: score_by_action[a]+noise[a])
-    stats = {'candidates': k, 'used': used, 'value': root.mean, 'proof': root.solved,
-             'policy_weight': float(root.solved != -1.), 'search_version': SEARCH_VERSION,
-             'q_range': max(q)-min(q), 'chosen_target_probability': float(p[action])}
-    if diagnostics:
-        stats.update({'actions': all_actions, 'q': q, 'visits': [root.children[a].visits for a in all_actions],
-                      'priors': [root.children[a].prior for a in all_actions], 'initial': initial,
-                      'solved': [root.children[a].solved for a in all_actions]})
-    return action, p, stats
+        finalists = [a for a in active if a in allowed] or allowed
+        action = max(finalists,key=lambda a: score_by_action[a]+noise[a])
+    return action,p,stats(used,k,q,p)
 
 
 def drive(generator, evaluator):
