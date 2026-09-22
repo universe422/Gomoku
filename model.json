@@ -1,14 +1,14 @@
 {
-  "games": 832,
-  "cycle": 26,
+  "games": 992,
+  "cycle": 31,
   "config": {
     "channels": 64,
     "blocks": 6
   },
-  "checkpoint_sha256": "626933a2e1e277b117aad7c5e9df393977f0941fcc883ea391c1c0ca577f0aae",
+  "checkpoint_sha256": "133e0c597dda89cae108744c5884ee9ac6d17b90912dcddcdfda7cdd614049d3",
   "rules_sha256": "d994d6891deb4aebe6170e9cab3c9c66686127cc99420581ce0d707a7d3c8fc2",
-  "onnx_sha256": "f86b710a61845b78bf8db655a43027b5da77a766adf259c4bf3f0ac33f28731d",
-  "max_absolute_error": 1.1444091796875e-05,
+  "onnx_sha256": "bb28a3629b4201424f069509e8a2109b97ba20d863ea990a82a8726c47c8a6c4",
+  "max_absolute_error": 8.58306884765625e-06,
   "verified_batch_sizes": [
     1,
     4,

@@ -33,13 +33,18 @@ async function init() {
   importScripts(PY + 'pyodide.js', ORT + 'ort.min.js');
   ort.env.wasm.wasmPaths = ORT;
   ort.env.wasm.numThreads = 1;
+  const metadataResponse = await fetch('./model.json', {cache: 'no-cache'});
+  if (!metadataResponse.ok) throw new Error(`Model metadata: HTTP ${metadataResponse.status}`);
+  const metadata = await metadataResponse.json();
+  const modelURL = new URL('./best.onnx', self.location.href);
+  modelURL.searchParams.set('v', metadata.onnx_sha256);
   [py, session] = await Promise.all([
     loadPyodide({indexURL: PY}),
-    ort.InferenceSession.create(new URL('./best.onnx', self.location.href).href,
+    ort.InferenceSession.create(modelURL.href,
       {executionProviders: ['wasm'], graphOptimizationLevel: 'all'})
   ]);
   py.FS.mkdirTree('/engine');
-  await Promise.all(['renju', 'patterns', 'threat_search', 'core', 'search', 'browser_support', 'bridge'].map(async name => {
+  await Promise.all(['renju', 'patterns', 'threat_search', 'forcing', 'core', 'search', 'browser_support', 'bridge'].map(async name => {
     const response = await fetch(`./engine/${name}.py`);
     if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
     py.FS.writeFile(`/engine/${name}.py`, await response.text());
@@ -54,6 +59,8 @@ self.onmessage = async ({data}) => {
   try {
     if (data.type === 'init') await init();
     else if (data.type === 'ai') {
+      if (!Number.isInteger(data.simulations) || data.simulations < 4 || data.simulations > 16384)
+        throw new Error('탐색량은 4~16,384 사이의 정수여야 합니다.');
       py.globals.set('budget', data.simulations);
       const result = JSON.parse(await py.runPythonAsync('await ai_turn(budget)'));
       send('ai-done', result);

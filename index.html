@@ -27,8 +27,9 @@
         <label for="side">내 돌</label>
         <select id="side"><option value="1">● 흑 · 먼저 두기</option><option value="2">○ 백 · 나중에 두기</option></select>
         <label for="simulations">AI 탐색량</label>
-        <select id="simulations"><option value="16">빠르게 · 16회</option><option value="32" selected>가볍게 · 32회</option><option value="64">차분하게 · 64회</option><option value="128">깊게 · 128회</option></select>
-        <p class="setting-note">탐색량이 많을수록 더 오래 생각합니다.<br>돌 선택은 새 대국부터 적용됩니다.</p>
+        <input id="simulations" type="number" inputmode="numeric" min="4" max="16384" step="1" value="32" list="search-presets" aria-describedby="search-help" required>
+        <datalist id="search-presets"><option value="16"><option value="32"><option value="64"><option value="128"><option value="256"><option value="512"><option value="1024"><option value="2048"></datalist>
+        <p class="setting-note" id="search-help">4~16,384회 정수로 직접 입력하세요. 다음 AI 차례부터 적용됩니다. 많을수록 오래 생각합니다.<br>돌 선택은 새 대국부터 적용됩니다.</p>
       </fieldset>
       <button id="new-game" class="primary" disabled>새 대국</button>
       <button id="pass" class="secondary" hidden>둘 곳 없음 · 패스</button>

@@ -20,6 +20,14 @@ for (let r = 0; r < 15; r++) for (let c = 0; c < 15; c++) {
   cells.push(cell); $('board').append(cell);
 }
 function status(message, detail = '') { $('status').textContent=message; $('detail').textContent=detail; }
+function validBudget() {
+  const input=$('simulations'), value=Number(input.value);
+  const valid=input.value.trim()!=='' && Number.isInteger(value) && value>=4 && value<=16384;
+  input.setCustomValidity(valid?'':'탐색량은 4~16,384 사이의 정수로 입력하세요.');
+  if (!valid) { input.reportValidity(); return false; }
+  return true;
+}
+$('simulations').addEventListener('input',()=> $('simulations').setCustomValidity(''));
 function render() {
   const forbidden = new Set((state?.forbidden || []).map(([r,c])=>r*15+c));
   cells.forEach((cell,a)=>{
@@ -51,6 +59,7 @@ function settle() {
 }
 function play(action) {
   if (!ready || busy || state.winner!==null || state.turn!==human) return;
+  if (!validBudget()) return;
   if (action!==225 && state.board[Math.floor(action/15)][action%15]) return;
   busy=true; pending='move';render();worker.postMessage({type:'move',action});
 }
@@ -75,8 +84,8 @@ function boot() {
   worker.onerror=event=>{clearInterval(timer);ready=false;busy=false;render();status('엔진을 불러오지 못했습니다','연결 상태를 확인한 뒤 다시 시도해 주세요.');$('retry').hidden=false;console.error(event.message);};
   worker.postMessage({type:'init'});
 }
-$('new-game').addEventListener('click',()=>{if(busy)return;human=Number($('side').value);lastSeconds=null;busy=true;render();worker.postMessage({type:'new'});});
+$('new-game').addEventListener('click',()=>{if(busy || !validBudget())return;human=Number($('side').value);lastSeconds=null;busy=true;render();worker.postMessage({type:'new'});});
 $('pass').addEventListener('click',()=>play(225));
 $('retry').addEventListener('click',boot);
-fetch('./model.json').then(r=>{if(!r.ok)throw Error(r.status);return r.json();}).then(m=>{$('model-info').textContent=`best · 학습 ${Number(m.games).toLocaleString()}판`;}).catch(()=>{});
+fetch('./model.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error(r.status);return r.json();}).then(m=>{$('model-info').textContent=`best · 학습 ${Number(m.games).toLocaleString()}판`;}).catch(()=>{});
 boot();
