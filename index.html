@@ -7,7 +7,7 @@
   <meta name="description" content="설치 없이 브라우저에서 즐기는 렌주 AI 대국. 흑 금수와 15×15 규칙을 지원합니다.">
   <title>렌주 · AI와 한 판</title>
   <link rel="stylesheet" href="./style.css">
-  <script defer src="./app.js"></script>
+  <script defer src="./app.js?v=speed-20260923-1"></script>
 </head>
 <body>
   <header><a class="brand" href="./">렌주<span>RENJU / 15 × 15</span></a><span class="header-note">AI와 한 판</span></header>
@@ -36,6 +36,8 @@
       <button id="retry" class="secondary" hidden>엔진 다시 불러오기</button>
       <details><summary>대국 규칙</summary><p>15×15 바둑판에서 흑이 중앙에 먼저 둡니다. 흑은 정확히 5목, 백은 5목 이상이면 이깁니다. 흑의 삼삼·사사·장목은 금수로 표시되며 둘 수 없습니다.</p><p>둘 곳이 없을 때만 패스할 수 있습니다. 대회용 교환 오프닝과 시간제는 포함하지 않습니다.</p></details>
       <p class="privacy">대국 계산은 내 기기에서 이루어집니다.<br>대국 내용은 서버에 전송하지 않습니다.</p>
+      <p class="privacy"><a href="./diagnostics.html">탐색 속도 진단 · 전후 비교</a></p>
+      <details id="ui-timing" hidden><summary>실제 클릭→AI 표시 시간</summary><p id="ui-timing-summary">착수하면 시간을 기록합니다.</p><button id="ui-timing-download" class="secondary">착수 기록 JSON 내려받기</button><textarea id="ui-timing-json" aria-label="착수 진단 JSON" readonly style="width:100%;height:100px"></textarea></details>
     </aside>
   </main>
   <footer><span>RENJU NEXT</span><span id="model-info">학습 모델 · best</span></footer>

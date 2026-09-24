@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172723">
+  <title>렌주 AI · 속도 진단</title>
+  <link rel="stylesheet" href="./diagnostics.css">
+  <script defer src="./diagnostics.js?v=speed-20260923-1"></script>
+</head>
+<body>
+  <header><a href="./">← 렌주 대국</a><span>RENJU / PERFORMANCE</span></header>
+  <main>
+    <h1>내 브라우저에서<br>탐색 속도 비교</h1>
+    <p class="lead">같은 모델·기보·탐색량으로 기존 경로와 개선 경로를 비교합니다. 계산과 결과 파일 생성은 이 기기에서 이루어집니다.</p>
+    <section class="panel" aria-labelledby="setup-heading">
+      <h2 id="setup-heading">측정 설정</h2>
+      <form id="configuration">
+        <div class="fields">
+          <label>개선 경로의 추론 장치<select id="backend"><option value="compare">WASM과 WebGPU 모두 비교</option><option value="auto">auto · WebGPU 우선, WASM 복구</option><option value="wasm">WASM</option><option value="webgpu">WebGPU</option></select></label>
+          <label>탐색량 · 쉼표로 구분<input id="budgets" value="32, 128, 512" inputmode="numeric" required aria-describedby="budget-note"></label>
+          <label>각 조건의 반복 횟수<input id="repeats" type="number" value="3" min="1" max="30" step="1" required></label>
+        </div>
+        <p id="budget-note" class="note">기존 WASM 경로는 항상 함께 측정합니다. 탐색량은 4~16,384회 정수입니다. 초기화·워밍업은 착수 통계에서 제외합니다.</p>
+        <fieldset><legend>고정 국면</legend><div class="presets" aria-label="측정 설정 빠르게 선택"><button type="button" class="secondary" data-preset="full">전체 · 32/128/512 × 3회</button><button type="button" class="secondary" data-preset="interleaved">일반 탐색 4개 · 교차 비교</button><button type="button" class="secondary" data-preset="ordinary">일반 국면 6개 · 흑백</button><button type="button" class="secondary" data-preset="quick">빠른 확인 · 초반 흑백+전술</button></div><div id="fixture-options" class="fixtures">기보 목록을 불러오는 중…</div></fieldset>
+        <label class="checkbox"><input id="auto-download" type="checkbox" checked> 완료되면 결과 JSON 자동 내려받기</label>
+        <p class="note">각 반복에서 캐시를 비운 탐색(cold)을 실행한 직후, 같은 국면을 캐시를 유지한 채 한 번 더 탐색(warm)합니다. 두 결과는 따로 비교합니다. 기본 전체 측정은 수 분 이상 걸릴 수 있습니다. 이 탭을 앞에 두고 다른 무거운 작업을 멈추면 비교하기 좋습니다.</p>
+        <div class="actions"><button id="start" type="submit">전후 비교 시작</button><button id="cancel" type="button" class="secondary" disabled>중단</button><button id="download" type="button" class="secondary" disabled>결과 JSON 내려받기</button></div>
+      </form>
+    </section>
+    <section class="panel" aria-labelledby="progress-heading">
+      <h2 id="progress-heading">진행 상태</h2>
+      <p id="status" role="status" aria-live="polite">대기 중 · 시작을 누르면 실행 엔진을 불러옵니다.</p>
+      <progress id="progress" value="0" max="1" aria-label="측정 진행률"></progress>
+      <div class="live"><canvas id="result-board" width="330" height="330" role="img" aria-label="마지막 측정의 결과 바둑판"></canvas><div><p id="last-sample">아직 측정 결과가 없습니다.</p><p class="note">이 판의 표시 시간은 <strong>진단 요청부터 결과판 표시까지</strong>입니다. 실제 대국 화면의 사람 클릭부터 AI 착수까지의 시간과 구분해 기록합니다.</p></div></div>
+      <details><summary>실행 기록</summary><pre id="log"></pre></details>
+    </section>
+    <section class="panel" aria-labelledby="results-heading">
+      <h2 id="results-heading">착수 시간</h2>
+      <p class="note">중앙값과 p95는 초 단위입니다. 반복 수가 적을 때 p95는 안정적인 꼬리 지연 추정치가 아닙니다. 같은 모델·완료 탐색 수·결과판·탐색 통계가 일치하는 반복끼리 속도 차이를 계산합니다. GPU 요청이 WASM으로 복구된 경우 GPU 실측으로 표시하지 않습니다.</p>
+      <div class="table-scroll"><table><caption>기존 경로 대비 개선 경로 · cold와 warm 분리</caption><thead><tr><th>국면 / 탐색량</th><th>경로 · 실제 장치</th><th>캐시</th><th>표본</th><th>중앙값</th><th>p95</th><th>기존 대비</th><th>요청→표시</th></tr></thead><tbody id="results"><tr><td colspan="8">측정 후 표시됩니다.</td></tr></tbody></table></div>
+      <p class="note">AI 시간에는 탐색 및 결과 snapshot이 포함됩니다. 기보 준비·사람 수 처리 등 별도 측정 구간과 중첩된 세부 타이머는 JSON에 보존하며, 이들을 더해 전체 시간으로 표시하지 않습니다. 실제 완료 탐색 수·신경망 평가 수와 요청 예산은 별도 카운터로 기록합니다.</p>
+    </section>
+    <section class="panel" aria-labelledby="accuracy-heading">
+      <h2 id="accuracy-heading">모델 출력·추론 지연·실행 환경</h2>
+      <p id="accuracy-status">정책 226개(225칸+패스)와 가치 출력을 기존 WASM 경로와 비교합니다. 동일 입력 중복과 패스 채널 변형을 포함합니다.</p>
+      <div class="table-scroll"><table><caption>신경망만 측정 · CPU에서 출력 사용 가능할 때까지</caption><thead><tr><th>경로 · 실제 장치</th><th>배치</th><th>표본</th><th>중앙값 (ms)</th><th>p95 (ms)</th></tr></thead><tbody id="microbench"><tr><td colspan="5">측정 후 표시됩니다.</td></tr></tbody></table></div>
+      <details><summary>환경·로딩 구간·정확성 상세</summary><pre id="environment">측정 전</pre></details>
+      <details><summary>전체 결과 JSON · 종료 또는 중단 후 갱신</summary><label for="report-json" class="note">파일 저장 없이도 아래 결과를 선택해 복사할 수 있습니다.</label><textarea id="report-json" readonly spellcheck="false" rows="12" aria-label="전체 진단 결과 JSON">아직 측정하지 않았습니다.</textarea></details>
+    </section>
+    <section class="guide">
+      <h2>결과를 읽는 방법</h2>
+      <ol><li>기본 설정으로 <strong>전후 비교 시작</strong>을 누릅니다. GPU를 사용할 수 없어도 WASM 결과와 복구 사유가 남습니다.</li><li><strong>cold</strong>는 신경망·규칙 캐시를 비운 결과, <strong>warm</strong>은 바로 앞 동일 국면의 캐시를 남긴 결과입니다. 반복 캐시 효과를 일반적인 가속으로 해석하지 마세요.</li><li>실제 어댑터 정보·provider 증거·모델 해시·원시 표본·오차·세부 타이머는 JSON에서 확인합니다. 어댑터 정보가 없으면 RTX 사용 여부는 확인되지 않은 것입니다.</li><li>중단하면 실행 중 Worker를 종료합니다. 이미 모은 표본은 내려받을 수 있습니다. 다시 시작하면 새 Worker에서 재측정합니다.</li></ol>
+      <p class="note">모든 실행 경로를 먼저 준비하고, 같은 국면·탐색량을 한 경로씩 번갈아 측정합니다. 매 반복마다 경로 순서를 순환해 기본 3회에서 순서를 균형 있게 배치합니다. 각 경로의 cold 직후 warm을 실행하며 동시 탐색은 하지 않습니다. 여러 세션을 유지하므로 일반 대국보다 메모리를 더 사용합니다. 발열·전원·백그라운드 영향은 여전히 남습니다. 이 도구는 대국 기본 설정을 자동으로 바꾸지 않습니다.</p>
+    </section>
+  </main>
+</body>
+</html>

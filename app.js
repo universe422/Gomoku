@@ -1,4 +1,23 @@
 const $ = id => document.getElementById(id);
+const BUILD = 'speed-20260923-1';
+const diagnosticOptions = new URLSearchParams(location.search);
+const diagnosing = diagnosticOptions.get('diagnostics') === '1';
+const uiReport = {schemaVersion:'renju-speed-ui-1', build:BUILD, startedAt:new Date().toISOString(), userAgent:navigator.userAgent, crossOriginIsolated,
+  timing:'Human click entry to AI board DOM update and two-RAF paint opportunity; includes human move, snapshot, worker messaging and AI. Visible tabs only.', turns:[]};
+let uiTurn, requestSequence = 0, pendingRequest = 0, hiddenEpoch = 0;
+addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'){hiddenEpoch++;if(uiTurn)uiTurn.visible=false;}});
+function request(data) { pendingRequest = ++requestSequence; worker.postMessage({...data,id:pendingRequest}); }
+function saveUiReport() {
+  if(location.origin==='http://127.0.0.1:8765' && diagnosticOptions.get('save')==='local') {
+    fetch('./__save_diagnostic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(uiReport)})
+      .then(r=>{if(!r.ok)throw Error(r.status);return r.json();})
+      .then(r=>{$('ui-timing-summary').textContent+=' · 로컬 JSON 저장: '+r.saved;})
+      .catch(e=>{$('ui-timing-summary').textContent+=' · 로컬 저장 오류: '+e.message;});
+  }
+  const url=URL.createObjectURL(new Blob([JSON.stringify(uiReport,null,2)],{type:'application/json'}));
+  const link=document.createElement('a');link.href=url;link.download='renju-ui-timings.json';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
 let worker, state, ready = false, busy = true, human = 1, thinkingSince = 0, timer;
 let pending = '', lastSeconds = null, focused = 112;
 const cells = [];
@@ -51,7 +70,7 @@ function settle() {
   } else if (state.turn!==human) {
     busy=true;pending='ai';thinkingSince=Date.now();render();
     status('AI가 생각하고 있습니다…','탐색을 준비하는 중');
-    worker.postMessage({type:'ai',simulations:Number($('simulations').value)});
+    request({type:'ai',simulations:Number($('simulations').value)});
     timer=setInterval(()=>{ $('detail').textContent=`${((Date.now()-thinkingSince)/1000).toFixed(1)}초 경과 · 탐색 중`; },1000);
   } else {
     status('내 차례입니다',state.count===0?'중앙에 첫 돌을 놓아 주세요.':lastSeconds===null?'빈 교차점을 선택하세요.':`AI 생각 시간 ${lastSeconds.toFixed(1)}초 · 빈 교차점을 선택하세요.`);
@@ -61,31 +80,58 @@ function play(action) {
   if (!ready || busy || state.winner!==null || state.turn!==human) return;
   if (!validBudget()) return;
   if (action!==225 && state.board[Math.floor(action/15)][action%15]) return;
-  busy=true; pending='move';render();worker.postMessage({type:'move',action});
+  if(diagnosing) uiTurn={started:performance.now(), action, initialState:state,
+    simulations:Number($('simulations').value), hiddenEpoch, visible:document.visibilityState==='visible'};
+  busy=true; pending='move';render();request({type:'move',action});
 }
 function boot() {
   worker?.terminate();clearInterval(timer);ready=false;busy=true;state=null;lastSeconds=null;
   $('retry').hidden=true;status('대국 엔진을 불러오는 중…','처음 접속하면 준비에 잠시 시간이 걸립니다.');render();
-  worker = new Worker('./worker.js');
+  uiTurn=null;
+  worker = new Worker('./worker.js?v='+BUILD);
+  const sourceWorker=worker;
   worker.onmessage=({data})=>{
+    if(sourceWorker!==worker || data.id!==pendingRequest) return;
     if(data.type==='loading') status(data.message,'첫 접속에는 실행 엔진 다운로드가 필요합니다.');
-    else if(data.type==='ready'){ready=true;state=data.state;human=Number($('side').value);settle();}
-    else if(data.type==='state'){state=data.state;settle();}
-    else if(data.type==='ai-done'){clearInterval(timer);state=data.state;lastSeconds=data.seconds;settle();}
+    else if(data.type==='ready'){uiReport.info=data.info;ready=true;state=data.state;human=Number($('side').value);settle();}
+    else if(data.type==='state'){
+      if(uiTurn){uiTurn.human_command_ms=data.command_ms;uiTurn.human_response_ms=performance.now()-uiTurn.started;}
+      state=data.state;settle();
+    }
+    else if(data.type==='ai-done'){
+      clearInterval(timer);state=data.state;lastSeconds=data.seconds;settle();
+      if(uiTurn){
+        const sample=uiTurn;uiTurn=null;
+        sample.dom_updated_ms=performance.now()-sample.started; sample.worker_turn_ms=data.worker_turn_ms;
+        sample.ai_seconds=data.seconds;sample.stats=data.stats;sample.metrics=data.metrics;sample.info=data.info;
+        sample.finalState=data.state;
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{
+          sample.paint_opportunity_ms=sample.visible && sample.hiddenEpoch===hiddenEpoch && document.visibilityState==='visible' ? performance.now()-sample.started:null;
+          delete sample.started;uiReport.turns.push(sample);if(uiReport.turns.length>100)uiReport.turns.shift();
+          $('ui-timing-summary').textContent=`기록 ${uiReport.turns.length}수 · 클릭→표시 ${sample.paint_opportunity_ms===null?'미측정':(sample.paint_opportunity_ms/1000).toFixed(3)+'초'}`;
+          $('ui-timing-json').value=JSON.stringify(uiReport,null,2);
+        }));
+      }
+    }
     else if(data.type==='progress') $('detail').textContent=`${data.evaluated}개 국면 검토 · ${((Date.now()-thinkingSince)/1000).toFixed(1)}초`;
     else if(data.type==='error') {
       clearInterval(timer);busy=false;
+      uiTurn=null;
       const recoverable=data.during==='move';
       if (!recoverable) ready=false;
       render();status(recoverable?'이곳에는 둘 수 없습니다':'엔진을 실행하지 못했습니다',recoverable?data.message.split('ValueError: ').pop().trim():'인터넷 연결을 확인하고 엔진을 다시 불러와 주세요.');
       $('retry').hidden=recoverable;console.error(data.message);
     }
   };
-  worker.onerror=event=>{clearInterval(timer);ready=false;busy=false;render();status('엔진을 불러오지 못했습니다','연결 상태를 확인한 뒤 다시 시도해 주세요.');$('retry').hidden=false;console.error(event.message);};
-  worker.postMessage({type:'init'});
+  worker.onerror=event=>{if(sourceWorker!==worker)return;clearInterval(timer);ready=false;busy=false;render();status('엔진을 불러오지 못했습니다','연결 상태를 확인한 뒤 다시 시도해 주세요.');$('retry').hidden=false;console.error(event.message);};
+  request({type:'init',diagnostics:diagnosing,
+    mode:diagnosing?diagnosticOptions.get('mode'):'optimized',
+    backend:diagnosing?(diagnosticOptions.get('backend')||'auto'):'auto'});
 }
-$('new-game').addEventListener('click',()=>{if(busy || !validBudget())return;human=Number($('side').value);lastSeconds=null;busy=true;render();worker.postMessage({type:'new'});});
+$('new-game').addEventListener('click',()=>{if(busy || !validBudget())return;human=Number($('side').value);lastSeconds=null;uiTurn=null;busy=true;render();request({type:'new'});});
 $('pass').addEventListener('click',()=>play(225));
 $('retry').addEventListener('click',boot);
+$('ui-timing').hidden=!diagnosing;
+$('ui-timing-download').addEventListener('click',saveUiReport);
 fetch('./model.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error(r.status);return r.json();}).then(m=>{$('model-info').textContent=`best · 학습 ${Number(m.games).toLocaleString()}판`;}).catch(()=>{});
 boot();
