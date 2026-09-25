@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>렌주 AI · 브라우저 회귀 검사</title>
+  <link rel="stylesheet" href="./diagnostics.css">
+  <script defer src="./acceptance.js?v=speed-20260923-1"></script>
+</head>
+<body>
+  <header><a href="./diagnostics.html">← 속도 진단</a><span>RENJU / ACCEPTANCE</span></header>
+  <main>
+    <h1>브라우저 회귀 검사</h1>
+    <p class="lead">WASM과 WebGPU를 새 Worker에서 차례로 실행합니다. 중앙 첫 수, AI 착수, 초기화, 오래된 요청 차단, GPU 장치 손실과 WASM 복구 후의 판 보존을 확인합니다.</p>
+    <section class="panel" aria-labelledby="run-heading">
+      <h2 id="run-heading">개발자 검증</h2>
+      <p class="note">탐색량은 32회입니다. 실제 대국 화면의 판에는 영향을 주지 않습니다. 속도 측정과 동시에 실행하지 마세요. GPU를 사용할 수 없으면 해당 장치 손실 검사를 미실행으로 기록합니다. 이 검사는 속도 비교나 기력 평가가 아닙니다.</p>
+      <label class="checkbox"><input id="auto-download" type="checkbox" checked> 완료하면 결과 JSON 자동 내려받기</label>
+      <div class="actions"><button id="start" type="button">검사 시작</button><button id="cancel" class="secondary" type="button" disabled>중단</button><button id="download" class="secondary" type="button" disabled>결과 JSON 내려받기</button></div>
+      <p id="status" role="status" aria-live="polite">대기 중</p>
+      <ol id="checks"></ol>
+    </section>
+    <section class="panel" aria-labelledby="report-heading">
+      <h2 id="report-heading">검사 결과 JSON</h2>
+      <p class="note">실제 backend, GPU 실행 증거, 모델 해시, 요청 ID와 전후 판을 저장합니다. WASM과 WebGPU의 수 선택 일치는 이 검사의 합격 조건이 아닙니다. 모델 출력 비교는 속도 진단 도구에서 수행합니다.</p>
+      <textarea id="report-json" rows="18" readonly spellcheck="false" aria-label="브라우저 회귀 검사 결과 JSON">아직 실행하지 않았습니다.</textarea>
+    </section>
+  </main>
+</body>
+</html>
